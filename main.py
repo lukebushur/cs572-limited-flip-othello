@@ -245,10 +245,10 @@ def experiment_baseline_vs_random(
     print(f"Draws:         {draws}")
     print(f"Baseline win rate: {baseline_wins / num_games:.2%}")
 
-    print("\nSearch Performance (mean ± std):")
-    print(f"Nodes expanded: {avg_nodes:.2f} ± {std_nodes:.2f}")
-    print(f"Alpha-beta cutoffs: {avg_cutoffs:.2f} ± {std_cutoffs:.2f}")
-    print(f"Search time (s): {avg_time:.6f} ± {std_time:.6f}")
+    print("\nSearch Performance (mean +- std):")
+    print(f"Nodes expanded: {avg_nodes:.2f} +- {std_nodes:.2f}")
+    print(f"Alpha-beta cutoffs: {avg_cutoffs:.2f} +- {std_cutoffs:.2f}")
+    print(f"Search time (s): {avg_time:.6f} +- {std_time:.6f}")
 
 
 def experiment_baseline_vs_tt(
@@ -371,17 +371,160 @@ def experiment_baseline_vs_tt(
     print(f"TT agent wins: {tt_wins}")
     print(f"Draws:         {draws}")
 
-    print("\nBaseline (mean ± std):")
-    print(f"  Nodes:   {b_nodes_mean:.2f} ± {b_nodes_std:.2f}")
-    print(f"  Cutoffs: {b_cut_mean:.2f} ± {b_cut_std:.2f}")
-    print(f"  Time:    {b_time_mean:.6f} ± {b_time_std:.6f}")
+    print("\nBaseline (mean +- std):")
+    print(f"  Nodes:   {b_nodes_mean:.2f} +- {b_nodes_std:.2f}")
+    print(f"  Cutoffs: {b_cut_mean:.2f} +- {b_cut_std:.2f}")
+    print(f"  Time:    {b_time_mean:.6f} +- {b_time_std:.6f}")
 
-    print("\nTT Agent (mean ± std):")
-    print(f"  Nodes:   {tt_nodes_mean:.2f} ± {tt_nodes_std:.2f}")
-    print(f"  Cutoffs: {tt_cut_mean:.2f} ± {tt_cut_std:.2f}")
-    print(f"  Time:    {tt_time_mean:.6f} ± {tt_time_std:.6f}")
-    print(f"  TT Hits: {tt_hits_mean:.2f} ± {tt_hits_std:.2f}")
+    print("\nTT Agent (mean +- std):")
+    print(f"  Nodes:   {tt_nodes_mean:.2f} +- {tt_nodes_std:.2f}")
+    print(f"  Cutoffs: {tt_cut_mean:.2f} +- {tt_cut_std:.2f}")
+    print(f"  Time:    {tt_time_mean:.6f} +- {tt_time_std:.6f}")
+    print(f"  TT Hits: {tt_hits_mean:.2f} +- {tt_hits_std:.2f}")
 
+
+def experiment_vary_k_baseline_vs_random(
+    k_values: list[int] = [1, 2, 3, 4],
+    num_games_per_k: int = 10,
+    depth: int = 3,
+    verbose_each_game: bool = False,
+) -> None:
+    """
+    Analyze how different flip limits k affect baseline performance
+    against a random agent.
+    """
+    print("=== EXPERIMENT: Effect of varying flip limit k ===")
+
+    all_results = []
+
+    for k in k_values:
+        baseline_wins = 0
+        random_wins = 0
+        draws = 0
+
+        nodes_list: list[int] = []
+        cutoffs_list: list[int] = []
+        time_list: list[float] = []
+        margin_list: list[int] = []
+
+        print(f"\n--- k = {k} ---")
+
+        for game_idx in range(num_games_per_k):
+            baseline_color = random.choice([DiskColor.BLACK, DiskColor.WHITE])
+            random_color = baseline_color.opponent()
+
+            baseline = MinimaxAlphaBetaPlayer(
+                color=baseline_color,
+                max_depth=depth,
+                use_transposition_table=False,
+                use_iterative_deepening=False,
+            )
+            random_player = RandomPlayer(random_color)
+
+            if baseline_color == DiskColor.BLACK:
+                black_player = baseline
+                white_player = random_player
+            else:
+                black_player = random_player
+                white_player = baseline
+
+            result, stats_by_player = play_game_with_agent_stats(
+                black_player=black_player,
+                white_player=white_player,
+                tracked_players=[baseline],
+                flip_limit=k,
+                verbose=verbose_each_game,
+            )
+
+            baseline_stats = stats_by_player[baseline]
+            game_nodes = baseline_stats["nodes"]
+            game_cutoffs = baseline_stats["cutoffs"]
+            game_time = baseline_stats["time"]
+
+            if baseline_color == DiskColor.BLACK:
+                margin = result.black_disks - result.white_disks
+            else:
+                margin = result.white_disks - result.black_disks
+
+            nodes_list.append(game_nodes)
+            cutoffs_list.append(game_cutoffs)
+            time_list.append(game_time)
+            margin_list.append(margin)
+
+            if result.winner == baseline_color:
+                baseline_wins += 1
+            elif result.winner is None:
+                draws += 1
+            else:
+                random_wins += 1
+
+            winner_str = "DRAW" if result.winner is None else (
+                "BLACK" if result.winner == DiskColor.BLACK else "WHITE"
+            )
+
+            print(
+                f"Game {game_idx + 1}: "
+                f"Baseline as {'BLACK' if baseline_color == DiskColor.BLACK else 'WHITE'} | "
+                f"Black={result.black_disks}, White={result.white_disks}, "
+                f"Winner={winner_str}, "
+                f"Nodes={game_nodes}, Cutoffs={game_cutoffs}, Time={game_time:.6f}s, "
+                f"Margin={margin}"
+            )
+
+        avg_nodes = statistics.mean(nodes_list)
+        std_nodes = statistics.stdev(nodes_list) if len(nodes_list) > 1 else 0.0
+
+        avg_cutoffs = statistics.mean(cutoffs_list)
+        std_cutoffs = statistics.stdev(cutoffs_list) if len(cutoffs_list) > 1 else 0.0
+
+        avg_time = statistics.mean(time_list)
+        std_time = statistics.stdev(time_list) if len(time_list) > 1 else 0.0
+
+        avg_margin = statistics.mean(margin_list)
+        std_margin = statistics.stdev(margin_list) if len(margin_list) > 1 else 0.0
+
+        win_rate = baseline_wins / num_games_per_k
+
+        all_results.append(
+            {
+                "k": k,
+                "baseline_wins": baseline_wins,
+                "random_wins": random_wins,
+                "draws": draws,
+                "win_rate": win_rate,
+                "avg_nodes": avg_nodes,
+                "std_nodes": std_nodes,
+                "avg_cutoffs": avg_cutoffs,
+                "std_cutoffs": std_cutoffs,
+                "avg_time": avg_time,
+                "std_time": std_time,
+                "avg_margin": avg_margin,
+                "std_margin": std_margin,
+            }
+        )
+
+        print("\nSummary:")
+        print(f"  Baseline wins: {baseline_wins}")
+        print(f"  Random wins:   {random_wins}")
+        print(f"  Draws:         {draws}")
+        print(f"  Win rate:      {win_rate:.2%}")
+
+        print("  Performance (mean +- std):")
+        print(f"    Nodes:       {avg_nodes:.2f} +- {std_nodes:.2f}")
+        print(f"    Cutoffs:     {avg_cutoffs:.2f} +- {std_cutoffs:.2f}")
+        print(f"    Time (s):    {avg_time:.6f} +- {std_time:.6f}")
+        print(f"    Disk margin: {avg_margin:.2f} +- {std_margin:.2f}")
+
+    print("\n=== OVERALL RESULTS BY k ===")
+    for row in all_results:
+        print(
+            f"k={row['k']}: "
+            f"win_rate={row['win_rate']:.2%}, "
+            f"nodes={row['avg_nodes']:.2f} +- {row['std_nodes']:.2f}, "
+            f"cutoffs={row['avg_cutoffs']:.2f} +- {row['std_cutoffs']:.2f}, "
+            f"time={row['avg_time']:.6f} +- {row['std_time']:.6f}s, "
+            f"margin={row['avg_margin']:.2f} +- {row['std_margin']:.2f}"
+        )
 
 def main() -> None:
     test_case_1_initial_actions()
@@ -391,18 +534,25 @@ def main() -> None:
     test_case_3_limited_flip_rule()
     print()
 
-    # experiment_baseline_vs_random(
-    #     num_games=10,
-    #     depth=3,
-    #     flip_limit=2,
-    #     verbose_each_game=False
-    # )
-
+    experiment_baseline_vs_random(
+        num_games=30,
+        depth=3,
+        flip_limit=2,
+        verbose_each_game=False
+    )
+    print()
     experiment_baseline_vs_tt(
         num_games=10,
         depth=4,
         flip_limit=2,
         verbose_each_game=False
+    )
+    print()
+    experiment_vary_k_baseline_vs_random(
+        k_values=[1, 2, 3, 4],
+        num_games_per_k=30,
+        depth=3,
+        verbose_each_game=False,
     )
 
 
