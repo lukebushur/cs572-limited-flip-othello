@@ -280,14 +280,14 @@ class Board:
             state = self.state
 
         board, to_move = state
-        print("  0 1 2 3 4 5 6 7")
-        print(" +---------------+")
+        print("    0 1 2 3 4 5 6 7")
+        print("  +-----------------+")
         for i in range(BOARD_SIZE):
-            print(f"{i}|", end=" ")
+            print(f"{i} |", end=" ")
             for j in range(BOARD_SIZE):
                 print(self._get_cell_display(int(board[i, j])), end=" ")
             print("|")
-        print(" +---------------+")
+        print("  +-----------------+")
         print(f"To move: {'BLACK' if to_move == DiskColor.BLACK else 'WHITE'}")
 
     def display_actions(self, state: Optional[State] = None) -> None:
