@@ -55,7 +55,6 @@ def test_case_3_limited_flip_rule() -> None:
     board[3, 2] = Cell.WHITE
     board[3, 3] = Cell.WHITE
     board[3, 4] = Cell.WHITE
-    # board[3, 5] stays EMPTY
 
     game = Board(initial=board, flip_limit=flip_limit)
     game.state = (board.copy(), DiskColor.BLACK)
