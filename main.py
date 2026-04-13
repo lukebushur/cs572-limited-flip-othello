@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import statistics
 import random
 import numpy as np
 
@@ -94,22 +95,32 @@ def test_case_3_limited_flip_rule() -> None:
     print("Limited-flip rule test passed.")
 
 
-def play_game_with_stats(
+def play_game_with_agent_stats(
     black_player,
     white_player,
-    baseline_player,
+    tracked_players: list,
     flip_limit: int = 2,
     verbose: bool = False,
 ):
     """
-    Play one full game and accumulate stats for the baseline player.
+    Play one full game and accumulate stats for any players in tracked_players.
+    Returns:
+        result,
+        stats_by_player
+    where stats_by_player[player] is a dict with:
+        nodes, cutoffs, time, [tt_hits]
     """
     board = Board(flip_limit=flip_limit)
 
-    baseline_total_nodes = 0
-    baseline_total_cutoffs = 0
-    baseline_total_time = 0.0
-    baseline_total_tt_hits = 0
+    stats_by_player = {
+        player: {
+            "nodes": 0,
+            "cutoffs": 0,
+            "time": 0.0,
+            "tt_hits": 0,
+        }
+        for player in tracked_players
+    }
 
     while not board.is_terminal(board.state):
         if verbose:
@@ -127,13 +138,13 @@ def play_game_with_stats(
 
         move = current_player.get_next_move(board, state)
 
-        if current_player is baseline_player and hasattr(current_player, "stats"):
-            baseline_total_nodes += current_player.stats.nodes_expanded
-            baseline_total_cutoffs += current_player.stats.cutoffs
-            baseline_total_time += current_player.stats.elapsed_seconds
+        if current_player in stats_by_player and hasattr(current_player, "stats"):
+            stats_by_player[current_player]["nodes"] += current_player.stats.nodes_expanded
+            stats_by_player[current_player]["cutoffs"] += current_player.stats.cutoffs
+            stats_by_player[current_player]["time"] += current_player.stats.elapsed_seconds
 
             if hasattr(current_player.stats, "tt_hits"):
-                baseline_total_tt_hits += current_player.stats.tt_hits
+                stats_by_player[current_player]["tt_hits"] += current_player.stats.tt_hits
 
         if move is None:
             board.state = board.pass_turn(board.state)
@@ -145,13 +156,7 @@ def play_game_with_stats(
         board.display_state()
 
     result = board.get_result()
-    return (
-        result,
-        baseline_total_nodes,
-        baseline_total_cutoffs,
-        baseline_total_time,
-        baseline_total_tt_hits,
-    )
+    return result, stats_by_player
 
 
 def experiment_baseline_vs_random(
@@ -160,18 +165,19 @@ def experiment_baseline_vs_random(
     flip_limit: int = 2,
     verbose_each_game: bool = False,
 ) -> None:
-    print("=== EXPERIMENT: Baseline (no enhancements) vs Random (randomized roles) ===")
+    print("=== EXPERIMENT: Baseline (no enhancements) vs Random ===")
 
     baseline_wins = 0
     random_wins = 0
     draws = 0
 
-    total_nodes = 0
-    total_cutoffs = 0
-    total_time = 0.0
+    nodes_list: list[int] = []
+    cutoffs_list: list[int] = []
+    time_list: list[float] = []
 
     for game_idx in range(num_games):
         baseline_color = random.choice([DiskColor.BLACK, DiskColor.WHITE])
+        random_color = baseline_color.opponent()
 
         baseline = MinimaxAlphaBetaPlayer(
             color=baseline_color,
@@ -179,8 +185,6 @@ def experiment_baseline_vs_random(
             use_transposition_table=False,
             use_iterative_deepening=False,
         )
-
-        random_color = DiskColor.WHITE if baseline_color == DiskColor.BLACK else DiskColor.BLACK
         random_player = RandomPlayer(random_color)
 
         if baseline_color == DiskColor.BLACK:
@@ -190,17 +194,22 @@ def experiment_baseline_vs_random(
             black_player = random_player
             white_player = baseline
 
-        result, game_nodes, game_cutoffs, game_time, _ = play_game_with_stats(
+        result, stats_by_player = play_game_with_agent_stats(
             black_player=black_player,
             white_player=white_player,
-            baseline_player=baseline,
+            tracked_players=[baseline],
             flip_limit=flip_limit,
             verbose=verbose_each_game,
         )
 
-        total_nodes += game_nodes
-        total_cutoffs += game_cutoffs
-        total_time += game_time
+        baseline_stats = stats_by_player[baseline]
+        game_nodes = baseline_stats["nodes"]
+        game_cutoffs = baseline_stats["cutoffs"]
+        game_time = baseline_stats["time"]
+
+        nodes_list.append(game_nodes)
+        cutoffs_list.append(game_cutoffs)
+        time_list.append(game_time)
 
         if result.winner == baseline_color:
             baseline_wins += 1
@@ -209,22 +218,37 @@ def experiment_baseline_vs_random(
         else:
             random_wins += 1
 
+        winner_str = "DRAW" if result.winner is None else (
+            "BLACK" if result.winner == DiskColor.BLACK else "WHITE"
+        )
+
         print(
             f"Game {game_idx + 1}: "
             f"Baseline as {'BLACK' if baseline_color == DiskColor.BLACK else 'WHITE'} | "
             f"Black={result.black_disks}, White={result.white_disks}, "
-            f"Winner={result.winner}, "
-            f"Nodes={game_nodes}, Cutoffs={game_cutoffs}, Time={game_time:.4f}s"
+            f"Winner={winner_str}, "
+            f"Nodes={game_nodes}, Cutoffs={game_cutoffs}, Time={game_time:.6f}s"
         )
+
+    avg_nodes = statistics.mean(nodes_list)
+    std_nodes = statistics.stdev(nodes_list) if len(nodes_list) > 1 else 0.0
+
+    avg_cutoffs = statistics.mean(cutoffs_list)
+    std_cutoffs = statistics.stdev(cutoffs_list) if len(cutoffs_list) > 1 else 0.0
+
+    avg_time = statistics.mean(time_list)
+    std_time = statistics.stdev(time_list) if len(time_list) > 1 else 0.0
 
     print("\n--- Summary ---")
     print(f"Baseline wins: {baseline_wins}")
     print(f"Random wins:   {random_wins}")
     print(f"Draws:         {draws}")
     print(f"Baseline win rate: {baseline_wins / num_games:.2%}")
-    print(f"Average nodes expanded per game: {total_nodes / num_games:.2f}")
-    print(f"Average alpha-beta cutoffs per game: {total_cutoffs / num_games:.2f}")
-    print(f"Average search time per game: {total_time / num_games:.4f}s")
+
+    print("\nSearch Performance (mean ± std):")
+    print(f"Nodes expanded: {avg_nodes:.2f} ± {std_nodes:.2f}")
+    print(f"Alpha-beta cutoffs: {avg_cutoffs:.2f} ± {std_cutoffs:.2f}")
+    print(f"Search time (s): {avg_time:.6f} ± {std_time:.6f}")
 
 
 def main() -> None:
@@ -234,6 +258,7 @@ def main() -> None:
     print()
     test_case_3_limited_flip_rule()
     print()
+
     experiment_baseline_vs_random(
         num_games=10,
         depth=3,
