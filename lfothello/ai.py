@@ -16,6 +16,7 @@ class SearchStats:
     cutoffs: int = 0
     max_depth_reached: int = 0
     elapsed_seconds: float = 0.0
+    tt_hits: int = 0
 
 
 @dataclass
@@ -79,6 +80,7 @@ class MinimaxAlphaBetaPlayer(Player):
 
         self.stats = SearchStats()
         self._tt: dict[tuple[bytes, int, int], TTEntry] = {}
+        self._move_order_table: dict[tuple[bytes, int], Action] = {}
         self._search_start_time = 0.0
 
     def reset_stats(self) -> None:
@@ -86,6 +88,7 @@ class MinimaxAlphaBetaPlayer(Player):
 
     def clear_tt(self) -> None:
         self._tt.clear()
+        self._move_order_table.clear()
 
     def get_next_move(self, board: Board, state: State) -> Optional[Action]:
         self.reset_stats()
@@ -119,12 +122,20 @@ class MinimaxAlphaBetaPlayer(Player):
     def _board_key(self, board_state: BoardState, to_move: DiskColor, depth: int) -> tuple[bytes, int, int]:
         return (board_state.tobytes(), int(to_move), depth)
 
-    def _ordered_actions(self, board: Board, state: State, actions: list[Action]) -> list[Action]:
-        """
-        Very simple move ordering:
-        - Prefer corners
-        - Prefer moves with more immediate flips
-        """
+    def _move_order_key(
+        self,
+        board_state: BoardState,
+        to_move: DiskColor,
+    ) -> tuple[bytes, int]:
+        return (board_state.tobytes(), int(to_move))
+
+    def _ordered_actions(
+        self,
+        board: Board,
+        state: State,
+        actions: list[Action],
+        tt_best_action: Optional[Action] = None,
+    ) -> list[Action]:
         corners = {(0, 0), (0, 7), (7, 0), (7, 7)}
 
         def score(action: Action) -> tuple[int, int]:
@@ -133,7 +144,13 @@ class MinimaxAlphaBetaPlayer(Player):
             flip_bonus = len(board.get_flips_for_move(state, action))
             return (corner_bonus, flip_bonus)
 
-        return sorted(actions, key=score, reverse=True)
+        ordered = sorted(actions, key=score, reverse=True)
+
+        if tt_best_action is not None and tt_best_action in ordered:
+            ordered.remove(tt_best_action)
+            ordered.insert(0, tt_best_action)
+
+        return ordered
 
     def _iterative_deepening_search(self, board: Board, state: State) -> Optional[Action]:
         best_action: Optional[Action] = None
@@ -186,8 +203,13 @@ class MinimaxAlphaBetaPlayer(Player):
 
         board_state, to_move = state
 
+        key = None
+        move_key = None
+
         if self.use_transposition_table:
             key = self._board_key(board_state, to_move, depth)
+            move_key = self._move_order_key(board_state, to_move)
+
             entry = self._tt.get(key)
             if entry is not None:
                 self.stats.tt_hits += 1
@@ -195,13 +217,12 @@ class MinimaxAlphaBetaPlayer(Player):
 
         if depth == 0 or board.is_terminal(state):
             value = board.evaluate(state, self.color)
-            if self.use_transposition_table:
+            if self.use_transposition_table and key is not None:
                 self._tt[key] = TTEntry(depth=depth, value=value, best_action=None)
             return value, None
 
         actions = board.get_actions(state)
 
-        # Handle pass turns
         if not actions:
             next_state = board.pass_turn(state)
             value, _ = self._alphabeta(
@@ -212,11 +233,15 @@ class MinimaxAlphaBetaPlayer(Player):
                 beta=beta,
                 maximizing=not maximizing,
             )
-            if self.use_transposition_table:
+            if self.use_transposition_table and key is not None:
                 self._tt[key] = TTEntry(depth=depth, value=value, best_action=None)
             return value, None
 
-        actions = self._ordered_actions(board, state, actions)
+        tt_best_action = None
+        if self.use_transposition_table and move_key is not None:
+            tt_best_action = self._move_order_table.get(move_key)
+
+        actions = self._ordered_actions(board, state, actions, tt_best_action=tt_best_action)
 
         best_action: Optional[Action] = None
 
@@ -260,6 +285,9 @@ class MinimaxAlphaBetaPlayer(Player):
                     break
 
         if self.use_transposition_table:
-            self._tt[key] = TTEntry(depth=depth, value=value, best_action=best_action)
+            if key is not None:
+                self._tt[key] = TTEntry(depth=depth, value=value, best_action=best_action)
+            if move_key is not None and best_action is not None:
+                self._move_order_table[move_key] = best_action
 
         return value, best_action
