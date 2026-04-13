@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from .game import Board
-from .types import Action, DiskColor, State
+from .types import Action, BoardState, DiskColor, State
 
 
 @dataclass
@@ -16,6 +16,13 @@ class SearchStats:
     cutoffs: int = 0
     max_depth_reached: int = 0
     elapsed_seconds: float = 0.0
+
+
+@dataclass
+class TTEntry:
+    depth: int
+    value: float
+    best_action: Optional[Action]
 
 
 class Player:
@@ -60,9 +67,21 @@ class MinimaxAlphaBetaPlayer(Player):
         super().__init__(color)
         self.max_depth = max_depth
         self.stats = SearchStats()
+        self._tt: dict[tuple[bytes, int, int], TTEntry] = {}
 
     def reset_stats(self) -> None:
         self.stats = SearchStats()
+
+    def clear_tt(self) -> None:
+        self._tt.clear()
+
+    def _board_key(
+        self,
+        board_state: BoardState,
+        to_move: DiskColor,
+        depth: int,
+    ) -> tuple[bytes, int, int]:
+        return (board_state.tobytes(), int(to_move), depth)
 
     def get_next_move(self, board: Board, state: State) -> Optional[Action]:
         self.reset_stats()
@@ -99,8 +118,18 @@ class MinimaxAlphaBetaPlayer(Player):
         self.stats.nodes_expanded += 1
         self.stats.max_depth_reached = max(self.stats.max_depth_reached, current_depth)
 
+        board_state, to_move = state
+        key = self._board_key(board_state, to_move, depth)
+
+        cached = self._tt.get(key)
+        if cached is not None:
+            self.stats.tt_hits += 1
+            return cached.value, cached.best_action
+
         if depth == 0 or board.is_terminal(state):
-            return board.evaluate(state, self.color), None
+            value = board.evaluate(state, self.color)
+            self._tt[key] = TTEntry(depth=depth, value=value, best_action=None)
+            return value, None
 
         actions = board.get_actions(state)
 
@@ -116,6 +145,7 @@ class MinimaxAlphaBetaPlayer(Player):
                 maximizing=not maximizing,
                 current_depth=current_depth + 1,
             )
+            self._tt[key] = TTEntry(depth=depth, value=value, best_action=None)
             return value, None
 
         best_action: Optional[Action] = None
@@ -143,6 +173,7 @@ class MinimaxAlphaBetaPlayer(Player):
                     self.stats.cutoffs += 1
                     break
 
+            self._tt[key] = TTEntry(depth=depth, value=value, best_action=best_action)
             return value, best_action
 
         value = math.inf
@@ -167,4 +198,5 @@ class MinimaxAlphaBetaPlayer(Player):
                 self.stats.cutoffs += 1
                 break
 
+        self._tt[key] = TTEntry(depth=depth, value=value, best_action=best_action)
         return value, best_action
