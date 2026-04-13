@@ -10,6 +10,14 @@ from lfothello.types import Cell, DiskColor
 
 
 def test_case_1_initial_actions() -> None:
+    """
+    Test that the initial board state generates the correct number of legal moves.
+
+    This test verifies that:
+    - The standard Othello starting position is initialized correctly.
+    - Legal move generation works as expected for the opening position.
+    - The number of valid moves for the starting player (BLACK) is exactly 4.
+    """
     print("=== TEST CASE 1: Initial legal moves ===")
     board = Board(flip_limit=2)
     board.display_state()
@@ -21,6 +29,15 @@ def test_case_1_initial_actions() -> None:
 
 
 def test_case_2_apply_move() -> None:
+    """
+    Test that applying a valid move correctly updates the board state.
+
+    This test verifies that:
+    - A legal move can be selected and applied.
+    - The board state is updated correctly after the move.
+    - Disk flipping follows standard Othello rules.
+    - Disk counts reflect the expected outcome.
+    """
     print("=== TEST CASE 2: Apply one move ===")
     board = Board(flip_limit=2)
     state = board.get_state()
@@ -40,6 +57,14 @@ def test_case_2_apply_move() -> None:
 
 
 def test_case_3_limited_flip_rule() -> None:
+    """
+    Test the Limited-Flip Othello rule (k-flip constraint).
+
+    This test constructs a custom board configuration where a move would
+    normally flip multiple opponent disks in a straight line. It verifies
+    that only the closest k disks are flipped according to the specified
+    flip limit.
+    """
     print("=== TEST CASE 3: Limited-flip rule ===")
 
     flip_limit = 2
@@ -103,12 +128,34 @@ def play_game_with_agent_stats(
     verbose: bool = False,
 ):
     """
-    Play one full game and accumulate stats for any players in tracked_players.
-    Returns:
-        result,
-        stats_by_player
-    where stats_by_player[player] is a dict with:
-        nodes, cutoffs, time, [tt_hits]
+    Simulate a full game between two agents while collecting performance statistics.
+
+    This function runs a complete Limited-Flip Othello game using the provided
+    black and white players. During the game, it tracks search-related statistics
+    (e.g., nodes expanded, alpha-beta cutoffs, search time, and transposition
+    table hits) for any players specified in `tracked_players`.
+
+    Parameters
+    ----------
+    black_player : Player
+        The agent playing as BLACK.
+    white_player : Player
+        The agent playing as WHITE.
+    tracked_players : list
+        List of player objects for which statistics should be recorded.
+        Typically includes one or both agents participating in the game.
+    flip_limit : int, default=2
+        Maximum number of disks flipped per direction (k in Limited-Flip Othello).
+    verbose : bool, default=False
+        If True, prints the board state at each step for debugging or visualization.
+
+    Returns
+    -------
+    result : GameResult
+        Final game outcome, including disk counts and winner.
+    stats_by_player : dict
+        Dictionary mapping each tracked player to a dictionary of accumulated
+        statistics
     """
     board = Board(flip_limit=flip_limit)
 
@@ -165,6 +212,24 @@ def experiment_baseline_vs_random(
     flip_limit: int = 2,
     verbose_each_game: bool = False,
 ) -> None:
+    """
+    Run an experiment comparing the baseline minimax agent against a random agent.
+
+    This experiment evaluates the correctness and performance of the baseline
+    MinimaxAlphaBetaPlayer (without enhancements) by playing multiple games
+    against a RandomPlayer. It reports both game outcomes and search statistics.
+
+    Parameters
+    ----------
+    num_games : int, default=10
+        Number of games to simulate.
+    depth : int, default=3
+        Maximum search depth for the baseline agent.
+    flip_limit : int, default=2
+        Maximum number of disks flipped per direction (k in Limited-Flip Othello).
+    verbose_each_game : bool, default=False
+        If True, prints the board state during each game.
+    """
     print("=== EXPERIMENT: Baseline (no enhancements) vs Random ===")
 
     baseline_wins = 0
@@ -257,6 +322,26 @@ def experiment_baseline_vs_tt(
     flip_limit: int = 2,
     verbose_each_game: bool = False,
 ) -> None:
+    """
+    Compare the baseline minimax agent against a version enhanced with
+    transposition tables (TT).
+
+    This experiment evaluates the impact of transposition tables on both
+    playing performance and search efficiency. The two agents are identical
+    except that the TT-enabled agent caches previously evaluated states
+    and uses them to avoid redundant computation and improve move ordering.
+
+    Parameters
+    ----------
+    num_games : int, default=10
+        Number of games to simulate.
+    depth : int, default=4
+        Maximum search depth for both agents.
+    flip_limit : int, default=2
+        Maximum number of disks flipped per direction (k in Limited-Flip Othello).
+    verbose_each_game : bool, default=False
+        If True, prints the board state during each game.
+    """
     print("=== EXPERIMENT: Baseline vs Baseline + Transposition Tables ===")
 
     baseline_wins = 0
@@ -349,7 +434,7 @@ def experiment_baseline_vs_tt(
             f"TT Hits={tt_stats['tt_hits']}"
         )
 
-    # --- Compute statistics ---
+    # Compute statistics
     def mean_std(lst):
         return (
             statistics.mean(lst),
@@ -365,7 +450,6 @@ def experiment_baseline_vs_tt(
     tt_time_mean, tt_time_std = mean_std(tt_time_list)
     tt_hits_mean, tt_hits_std = mean_std(tt_hits_list)
 
-    # --- Summary ---
     print("\n--- Summary ---")
     print(f"Baseline wins: {baseline_wins}")
     print(f"TT agent wins: {tt_wins}")
@@ -390,8 +474,23 @@ def experiment_vary_k_baseline_vs_random(
     verbose_each_game: bool = False,
 ) -> None:
     """
-    Analyze how different flip limits k affect baseline performance
-    against a random agent.
+    Evaluate how the Limited-Flip parameter (k) affects baseline agent performance.
+
+    This experiment measures the impact of varying the flip limit k on both
+    gameplay outcomes and search performance. For each value of k, the baseline
+    minimax agent (with alpha-beta pruning only) plays multiple games against
+    a random agent, and performance metrics are recorded.
+
+    Parameters
+    ----------
+    k_values : list[int], default=[1, 2, 3, 4]
+        List of flip-limit values (k) to evaluate.
+    num_games_per_k : int, default=10
+        Number of games to simulate for each value of k.
+    depth : int, default=3
+        Maximum search depth for the baseline agent.
+    verbose_each_game : bool, default=False
+        If True, prints the board state during each game.
     """
     print("=== EXPERIMENT: Effect of varying flip limit k ===")
 
@@ -526,7 +625,13 @@ def experiment_vary_k_baseline_vs_random(
             f"margin={row['avg_margin']:.2f} +- {row['std_margin']:.2f}"
         )
 
+
 def main() -> None:
+    """
+    Main driver for the program. Runs the test cases and experiments and prints
+    out results/statistics.
+    """
+    # test cases
     test_case_1_initial_actions()
     print()
     test_case_2_apply_move()
@@ -534,6 +639,7 @@ def main() -> None:
     test_case_3_limited_flip_rule()
     print()
 
+    # experiments
     experiment_baseline_vs_random(
         num_games=30,
         depth=3,
