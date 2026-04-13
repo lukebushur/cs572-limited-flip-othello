@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
 from typing import Optional
 from abc import ABC, abstractmethod
 
@@ -7,6 +10,293 @@ from .types import Cell, DiskColor, BoardState, State, Action
 
 
 BOARD_SIZE = 8
+DIRECTIONS: tuple[tuple[int, int], ...] = (
+    (-1, 0),  # up
+    (-1, 1),  # up-right
+    (0, 1),   # right
+    (1, 1),   # down-right
+    (1, 0),   # down
+    (1, -1),  # down-left
+    (0, -1),  # left
+    (-1, -1), # up-left
+)
+
+@dataclass
+class GameResult:
+    black_disks: int
+    white_disks: int
+    winner: Optional[DiskColor]  # None for draw
+
+
+class Board:
+    """
+    Limited-Flip Othello environment.
+
+    Rules:
+    - Standard Othello legality rules.
+    - When a move captures in a direction, only up to `flip_limit`
+      opponent disks closest to the placed disk are flipped in that direction.
+    """
+    def __init__(self, initial: Optional[BoardState] = None, flip_limit: int = 2) -> None:
+        if flip_limit <= 0:
+            raise ValueError("flip_limit must be >= 1")
+
+        self.flip_limit = flip_limit
+
+        if initial is not None:
+            board = initial.astype(np.int8, copy=True)
+            self.state: State = (board, DiskColor.BLACK)
+        else:
+            board = np.full((BOARD_SIZE, BOARD_SIZE), Cell.EMPTY, dtype=np.int8)
+            board[3, 3] = Cell.WHITE
+            board[3, 4] = Cell.BLACK
+            board[4, 3] = Cell.BLACK
+            board[4, 4] = Cell.WHITE
+
+            self.state: State = (board, DiskColor.BLACK)
+
+    def copy(self) -> Board:
+        board, to_move = self.state
+        new_board = Board(initial=board.copy(), flip_limit=self.flip_limit)
+        new_board.state = (board.copy(), to_move)
+        return new_board
+
+    @staticmethod
+    def initial_board() -> BoardState:
+        board = np.full((BOARD_SIZE, BOARD_SIZE), Cell.EMPTY, dtype=np.int8)
+        board[3, 3] = Cell.WHITE
+        board[3, 4] = Cell.BLACK
+        board[4, 3] = Cell.BLACK
+        board[4, 4] = Cell.WHITE
+        return board
+
+    def get_state(self) -> State:
+        board, to_move = self.state
+        return board.copy(), to_move
+
+    @staticmethod
+    def in_bounds(row: int, col: int) -> bool:
+        return 0 <= row < BOARD_SIZE and 0 <= col < BOARD_SIZE
+
+    def _get_flips_for_direction(
+        self,
+        board: BoardState,
+        row: int,
+        col: int,
+        player: DiskColor,
+        dr: int,
+        dc: int,
+    ) -> list[tuple[int, int]]:
+        """
+        Returns the coordinates that would be flipped in one direction,
+        respecting the Limited-Flip parameter.
+        """
+        flips: list[tuple[int, int]] = []
+        opponent = player.opponent()
+
+        r, c = row + dr, col + dc
+
+        while self.in_bounds(r, c) and board[r, c] == opponent:
+            flips.append((r, c))
+            r += dr
+            c += dc
+
+        if not flips:
+            return []
+
+        if not self.in_bounds(r, c):
+            return []
+
+        if board[r, c] != player:
+            return []
+
+        # Standard Othello would flip all of `flips`.
+        # Limited-Flip Othello flips only the closest k.
+        return flips[: self.flip_limit]
+
+    def get_flips_for_move(self, state: State, action: Action) -> list[tuple[int, int]]:
+        board, to_move = state
+        row, col, color = action
+
+        if color != to_move:
+            return []
+
+        if not self.in_bounds(row, col):
+            return []
+
+        if board[row, col] != Cell.EMPTY:
+            return []
+
+        all_flips: list[tuple[int, int]] = []
+        for dr, dc in DIRECTIONS:
+            all_flips.extend(self._get_flips_for_direction(board, row, col, color, dr, dc))
+
+        return all_flips
+
+    def is_legal_action(self, state: State, action: Action) -> bool:
+        return len(self.get_flips_for_move(state, action)) > 0
+
+    def get_actions(self, state: Optional[State] = None) -> list[Action]:
+        if state is None:
+            state = self.state
+
+        board, to_move = state
+        actions: list[Action] = []
+
+        empties = np.argwhere(board == Cell.EMPTY)
+        for row, col in empties:
+            action: Action = (int(row), int(col), to_move)
+            if self.is_legal_action(state, action):
+                actions.append(action)
+
+        return actions
+
+    def apply_action(self, state: State, action: Action) -> State:
+        board, to_move = state
+        row, col, color = action
+
+        if color != to_move:
+            raise ValueError("Action color does not match player to move.")
+
+        flips = self.get_flips_for_move(state, action)
+        if not flips:
+            raise ValueError(f"Illegal move: {action}")
+
+        new_board = board.copy()
+        new_board[row, col] = color
+        for r, c in flips:
+            new_board[r, c] = color
+
+        return new_board, to_move.opponent()
+
+    def pass_turn(self, state: State) -> State:
+        board, to_move = state
+        return board.copy(), to_move.opponent()
+
+    def is_terminal(self, state: Optional[State] = None) -> bool:
+        if state is None:
+            state = self.state
+
+        if self.get_actions(state):
+            return False
+
+        opponent_state = self.pass_turn(state)
+        return len(self.get_actions(opponent_state)) == 0
+
+    def disk_counts(self, state: Optional[State] = None) -> tuple[int, int]:
+        if state is None:
+            state = self.state
+
+        board, _ = state
+        black = int(np.sum(board == Cell.BLACK))
+        white = int(np.sum(board == Cell.WHITE))
+        return black, white
+
+    def get_result(self, state: Optional[State] = None) -> GameResult:
+        if state is None:
+            state = self.state
+
+        black, white = self.disk_counts(state)
+        if black > white:
+            winner = DiskColor.BLACK
+        elif white > black:
+            winner = DiskColor.WHITE
+        else:
+            winner = None
+
+        return GameResult(
+            black_disks=black,
+            white_disks=white,
+            winner=winner,
+        )
+
+    def utility(self, state: State, maximizing_player: DiskColor) -> int:
+        black, white = self.disk_counts(state)
+        diff = black - white
+        return diff if maximizing_player == DiskColor.BLACK else -diff
+
+    def evaluate(self, state: State, maximizing_player: DiskColor) -> float:
+        """
+        Heuristic evaluation for non-terminal states.
+        Combines:
+        - disk difference
+        - mobility
+        - corner occupancy
+        """
+        if self.is_terminal(state):
+            return float(self.utility(state, maximizing_player) * 10_000)
+
+        board, to_move = state
+        opponent = maximizing_player.opponent()
+
+        black_count, white_count = self.disk_counts(state)
+        disk_diff = black_count - white_count
+        if maximizing_player == DiskColor.WHITE:
+            disk_diff = -disk_diff
+
+        my_actions = len(self.get_actions((board, maximizing_player)))
+        opp_actions = len(self.get_actions((board, opponent)))
+        mobility = my_actions - opp_actions
+
+        corners = [(0, 0), (0, 7), (7, 0), (7, 7)]
+        my_corners = 0
+        opp_corners = 0
+        for r, c in corners:
+            if board[r, c] == maximizing_player:
+                my_corners += 1
+            elif board[r, c] == opponent:
+                opp_corners += 1
+        corner_score = my_corners - opp_corners
+
+        # Weights can be tuned experimentally later.
+        return 1.0 * disk_diff + 4.0 * mobility + 25.0 * corner_score
+
+    def make_move(self, action: Action) -> None:
+        self.state = self.apply_action(self.state, action)
+
+    def step_pass_if_needed(self) -> bool:
+        """
+        If current player has no legal moves, pass the turn.
+        Returns True if a pass happened.
+        """
+        if self.get_actions(self.state):
+            return False
+        if not self.is_terminal(self.state):
+            self.state = self.pass_turn(self.state)
+            return True
+        return False
+
+    def _get_cell_display(self, cell_value: int) -> str:
+        if cell_value == Cell.EMPTY:
+            return "."
+        if cell_value == Cell.BLACK:
+            return "B"
+        if cell_value == Cell.WHITE:
+            return "W"
+        return "?"
+
+    def display_state(self, state: Optional[State] = None) -> None:
+        if state is None:
+            state = self.state
+
+        board, to_move = state
+        print("  0 1 2 3 4 5 6 7")
+        print(" +---------------+")
+        for i in range(BOARD_SIZE):
+            print(f"{i}|", end=" ")
+            for j in range(BOARD_SIZE):
+                print(self._get_cell_display(int(board[i, j])), end=" ")
+            print("|")
+        print(" +---------------+")
+        print(f"To move: {'BLACK' if to_move == DiskColor.BLACK else 'WHITE'}")
+
+    def display_actions(self, state: Optional[State] = None) -> None:
+        if state is None:
+            state = self.state
+        actions = self.get_actions(state)
+        print("Legal actions:")
+        for row, col, color in actions:
+            print(f"  ({row}, {col}, {'BLACK' if color == DiskColor.BLACK else 'WHITE'})")
 
 
 class Player(ABC):
@@ -24,69 +314,3 @@ class CLIPlayer(Player):
 
     def get_next_move(self, state: State, actions: list[Action]) -> Action:
         return (0, 0, self.color)
-
-
-class Board:
-    def __init__(self, initial: Optional[BoardState]) -> None:
-        if initial:
-            self.state: State = (initial, DiskColor.BLACK)
-        else:
-            board = np.full((BOARD_SIZE, BOARD_SIZE), Cell.EMPTY)
-            board[3, 3] = Cell.WHITE
-            board[3, 4] = Cell.BLACK
-            board[4, 3] = Cell.BLACK
-            board[4, 4] = Cell.WHITE
-
-            self.state: State = (board, DiskColor.BLACK)
-
-    def get_state(self) -> State:
-        return self.state
-
-    def _get_opponent(self) -> DiskColor:
-        if self.state[1] == DiskColor.BLACK:
-            return DiskColor.WHITE
-        else:
-            return DiskColor.BLACK
-
-    def get_actions(self) -> list[Action]:
-        board, _ = self.state
-        opp = self._get_opponent()
-        opp_coords = np.argwhere(board == opp)
-        print(opp_coords)
-        offsets = {
-            "top": (-1, 0),
-            "right": (0, 1),
-            "bottom": (1, 0),
-            "left": (0, -1),
-        }
-        candidate_moves: set[tuple[int, int]] = set()
-        for coord in opp_coords:
-            for offset in offsets.values():
-                move = coord + offset
-                i, j = int(move[0]), int(move[1])
-                if board[i, j] == Cell.EMPTY:
-                    candidate_moves.add((i, j))
-
-        # TODO
-        # for move in candidate_moves:
-        return []
-
-    def _get_cell_display(self, cell_value: Cell) -> str:
-        match cell_value:
-            case Cell.EMPTY:
-                return "."
-            case Cell.BLACK:
-                return "O"
-            case Cell.WHITE:
-                return "@"
-
-    def display_state(self) -> None:
-        print("+--------+")
-        for i in range(BOARD_SIZE):
-            print("|", end="")
-            for j in range(BOARD_SIZE):
-                board = self.state[0]
-                cell = self._get_cell_display(board[i, j])
-                print(cell, end="")
-            print("|")
-        print("+--------+")

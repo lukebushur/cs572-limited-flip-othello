@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 from enum import IntEnum
+from typing import TypeAlias
 
 import numpy as np
 from numpy.typing import NDArray
@@ -14,10 +17,13 @@ class DiskColor(IntEnum):
     BLACK = 0
     WHITE = 1
 
+    def opponent(self) -> DiskColor:
+        return DiskColor.WHITE if self == DiskColor.BLACK else DiskColor.Black
+
 
 # 8x8 ndarray of Cells
-type BoardState = NDArray[np.int_]
+BoardState: TypeAlias = NDArray[np.int8]
 # board, disk color to play
-type State = tuple[BoardState, DiskColor]
+State: TypeAlias = tuple[BoardState, DiskColor]
 # row, col, disk color to play
-type Action = tuple[int, int, DiskColor]
+Action: TypeAlias = tuple[int, int, DiskColor]
