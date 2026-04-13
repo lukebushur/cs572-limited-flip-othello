@@ -18,7 +18,7 @@ class DiskColor(IntEnum):
     WHITE = 1
 
     def opponent(self) -> DiskColor:
-        return DiskColor.WHITE if self == DiskColor.BLACK else DiskColor.Black
+        return DiskColor.WHITE if self == DiskColor.BLACK else DiskColor.BLACK
 
 
 # 8x8 ndarray of Cells
