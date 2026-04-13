@@ -251,6 +251,138 @@ def experiment_baseline_vs_random(
     print(f"Search time (s): {avg_time:.6f} ± {std_time:.6f}")
 
 
+def experiment_baseline_vs_tt(
+    num_games: int = 10,
+    depth: int = 4,
+    flip_limit: int = 2,
+    verbose_each_game: bool = False,
+) -> None:
+    print("=== EXPERIMENT: Baseline vs Baseline + Transposition Tables ===")
+
+    baseline_wins = 0
+    tt_wins = 0
+    draws = 0
+
+    # Per-game tracking
+    baseline_nodes_list = []
+    baseline_cutoffs_list = []
+    baseline_time_list = []
+
+    tt_nodes_list = []
+    tt_cutoffs_list = []
+    tt_time_list = []
+    tt_hits_list = []
+
+    for game_idx in range(num_games):
+        # Randomize roles
+        tt_color = random.choice([DiskColor.BLACK, DiskColor.WHITE])
+        baseline_color = tt_color.opponent()
+
+        baseline = MinimaxAlphaBetaPlayer(
+            color=baseline_color,
+            max_depth=depth,
+            use_transposition_table=False,
+            use_iterative_deepening=False,
+        )
+
+        tt_agent = MinimaxAlphaBetaPlayer(
+            color=tt_color,
+            max_depth=depth,
+            use_transposition_table=True,
+            use_iterative_deepening=False,
+        )
+
+        if baseline_color == DiskColor.BLACK:
+            black_player = baseline
+            white_player = tt_agent
+        else:
+            black_player = tt_agent
+            white_player = baseline
+
+        result, stats = play_game_with_agent_stats(
+            black_player=black_player,
+            white_player=white_player,
+            tracked_players=[baseline, tt_agent],
+            flip_limit=flip_limit,
+            verbose=verbose_each_game,
+        )
+
+        baseline_stats = stats[baseline]
+        tt_stats = stats[tt_agent]
+
+        # Store per-game values
+        baseline_nodes_list.append(baseline_stats["nodes"])
+        baseline_cutoffs_list.append(baseline_stats["cutoffs"])
+        baseline_time_list.append(baseline_stats["time"])
+
+        tt_nodes_list.append(tt_stats["nodes"])
+        tt_cutoffs_list.append(tt_stats["cutoffs"])
+        tt_time_list.append(tt_stats["time"])
+        tt_hits_list.append(tt_stats["tt_hits"])
+
+        # Win tracking
+        if result.winner == baseline_color:
+            baseline_wins += 1
+        elif result.winner == tt_color:
+            tt_wins += 1
+        else:
+            draws += 1
+
+        winner_str = "DRAW" if result.winner is None else (
+            "BLACK" if result.winner == DiskColor.BLACK else "WHITE"
+        )
+
+        print(
+            f"Game {game_idx + 1}: "
+            f"Baseline as {'BLACK' if baseline_color == DiskColor.BLACK else 'WHITE'}, "
+            f"Baseline + TT as {'WHITE' if baseline_color == DiskColor.BLACK else 'BLACK'} | "
+            f"Black={result.black_disks}, White={result.white_disks}, "
+            f"Winner={winner_str}"
+        )
+        print(
+            f"  Baseline -> Nodes={baseline_stats['nodes']}, "
+            f"Cutoffs={baseline_stats['cutoffs']}, Time={baseline_stats['time']:.6f}s"
+        )
+        print(
+            f"  TT Agent -> Nodes={tt_stats['nodes']}, "
+            f"Cutoffs={tt_stats['cutoffs']}, Time={tt_stats['time']:.6f}s, "
+            f"TT Hits={tt_stats['tt_hits']}"
+        )
+
+    # --- Compute statistics ---
+    def mean_std(lst):
+        return (
+            statistics.mean(lst),
+            statistics.stdev(lst) if len(lst) > 1 else 0.0,
+        )
+
+    b_nodes_mean, b_nodes_std = mean_std(baseline_nodes_list)
+    b_cut_mean, b_cut_std = mean_std(baseline_cutoffs_list)
+    b_time_mean, b_time_std = mean_std(baseline_time_list)
+
+    tt_nodes_mean, tt_nodes_std = mean_std(tt_nodes_list)
+    tt_cut_mean, tt_cut_std = mean_std(tt_cutoffs_list)
+    tt_time_mean, tt_time_std = mean_std(tt_time_list)
+    tt_hits_mean, tt_hits_std = mean_std(tt_hits_list)
+
+    # --- Summary ---
+    print("\n--- Summary ---")
+    print(f"Baseline wins: {baseline_wins}")
+    print(f"TT agent wins: {tt_wins}")
+    print(f"Draws:         {draws}")
+
+    print("\nBaseline (mean ± std):")
+    print(f"  Nodes:   {b_nodes_mean:.2f} ± {b_nodes_std:.2f}")
+    print(f"  Cutoffs: {b_cut_mean:.2f} ± {b_cut_std:.2f}")
+    print(f"  Time:    {b_time_mean:.6f} ± {b_time_std:.6f}")
+
+    print("\nTT Agent (mean ± std):")
+    print(f"  Nodes:   {tt_nodes_mean:.2f} ± {tt_nodes_std:.2f}")
+    print(f"  Cutoffs: {tt_cut_mean:.2f} ± {tt_cut_std:.2f}")
+    print(f"  Time:    {tt_time_mean:.6f} ± {tt_time_std:.6f}")
+    print(f"  TT Hits: {tt_hits_mean:.2f} ± {tt_hits_std:.2f}")
+
+
 def main() -> None:
     test_case_1_initial_actions()
     print()
@@ -259,9 +391,16 @@ def main() -> None:
     test_case_3_limited_flip_rule()
     print()
 
-    experiment_baseline_vs_random(
+    # experiment_baseline_vs_random(
+    #     num_games=10,
+    #     depth=3,
+    #     flip_limit=2,
+    #     verbose_each_game=False
+    # )
+
+    experiment_baseline_vs_tt(
         num_games=10,
-        depth=3,
+        depth=4,
         flip_limit=2,
         verbose_each_game=False
     )
