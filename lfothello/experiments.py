@@ -530,6 +530,21 @@ def experiment_fixed_tt_vs_id_tt(
     Fixed TT searches to a fixed depth, e.g. depth=4.
     ID+TT searches progressively deeper up to id_max_depth, but stops after
     time_limit_seconds.
+
+    Parameters
+    ----------
+    num_games : int, default=10
+        Number of games to simulate.
+    fixed_depth : int, default=4
+        Search depth used by the fixed-depth TT agent.
+    id_max_depth : int, default=10
+        Maximum depth the iterative deepening agent may attempt to reach.
+    time_limit_seconds : float, default=2.0
+        Per-move time budget for the iterative deepening agent.
+    flip_limit : int, default=2
+        Maximum number of disks flipped per direction (k in Limited-Flip Othello).
+    verbose_each_game : bool, default=False
+        If True, prints board states during gameplay.
     """
     print("=== EXPERIMENT: Fixed TT vs Iterative Deepening + TT ===")
 
