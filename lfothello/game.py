@@ -316,7 +316,7 @@ class Board:
                 opp_corners += 1
         corner_score = my_corners - opp_corners
 
-        # Weights can be tuned experimentally later.
+        # Weights can be tuned experimentally
         return 1.0 * disk_diff + 4.0 * mobility + 25.0 * corner_score
 
     def make_move(self, action: Action) -> None:

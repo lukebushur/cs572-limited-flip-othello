@@ -7,6 +7,7 @@ from lfothello.ai import MinimaxAlphaBetaPlayer, RandomPlayer
 from lfothello.game import Board
 from lfothello.types import DiskColor
 
+
 def play_game_with_agent_stats(
     black_player,
     white_player,
@@ -513,6 +514,7 @@ def experiment_vary_k_baseline_vs_random(
             f"time={row['avg_time']:.6f} +- {row['std_time']:.6f}s, "
             f"margin={row['avg_margin']:.2f} +- {row['std_margin']:.2f}"
         )
+
 
 def experiment_fixed_tt_vs_id_tt(
     num_games: int = 10,
